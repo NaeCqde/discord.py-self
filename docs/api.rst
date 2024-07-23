@@ -817,18 +817,14 @@ Guilds
     :param after: A list of stickers after the update.
     :type after: Sequence[:class:`GuildSticker`]
 
-.. function:: on_application_command_counts_update(guild, before, after)
+.. function:: on_application_command_index_update(guild)
 
-    Called when a :class:`Guild`\'s application command counts are updated.
+    Called when a :class:`Guild`\'s application command index is updated.
 
-    .. versionadded:: 2.0
+    .. versionadded:: 2.1
 
     :param guild: The guild who got their application command counts updated.
     :type guild: :class:`Guild`
-    :param before: A namedtuple of application command counts before the update.
-    :type before: :class:`ApplicationCommandCounts`
-    :param after: A namedtuple of application command counts after the update.
-    :type after: :class:`ApplicationCommandCounts`
 
 .. function:: on_audit_log_entry_create(entry)
 
@@ -979,12 +975,33 @@ Members
 ~~~~~~~~
 
 .. function:: on_member_join(member)
-              on_member_remove(member)
 
-    Called when a :class:`Member` join or leaves a :class:`Guild`.
+    Called when a :class:`Member` joins a :class:`Guild`.
 
-    :param member: The member who joined or left.
+    :param member: The member who joined.
     :type member: :class:`Member`
+
+.. function:: on_member_remove(member)
+
+    Called when a :class:`Member` leaves a :class:`Guild`.
+
+    If the guild or member could not be found in the internal cache this event
+    will not be called, you may use :func:`on_raw_member_remove` instead.
+
+    :param member: The member who left.
+    :type member: :class:`Member`
+
+.. function:: on_raw_member_remove(payload)
+
+    Called when a :class:`Member` leaves a :class:`Guild`.
+
+    Unlike :func:`on_member_remove`
+    this is called regardless of the guild or member being in the internal cache.
+
+    .. versionadded:: 2.1
+
+    :param payload: The raw event payload data.
+    :type payload: :class:`RawMemberRemoveEvent`
 
 .. function:: on_member_update(before, after)
 
@@ -7325,28 +7342,6 @@ Guild
 
         :type: :class:`User`
 
-.. class:: ApplicationCommandCounts
-
-    A namedtuple which represents the application command counts for a guild.
-
-    .. attribute:: chat_input
-
-        The number of chat input (slash) commands.
-
-        :type: :class:`int`
-
-    .. attribute:: user
-
-        The number of user commands.
-
-        :type: :class:`int`
-
-    .. attribute:: message
-
-        The number of message commands.
-
-        :type: :class:`int`
-
 Role
 ~~~~~
 
@@ -7909,6 +7904,11 @@ RawEvent
 .. attributetable:: RawThreadDeleteEvent
 
 .. autoclass:: RawThreadDeleteEvent()
+    :members:
+
+.. attributetable:: RawMemberRemoveEvent
+
+.. autoclass:: RawMemberRemoveEvent()
     :members:
 
 .. attributetable:: RawMessageAckEvent
