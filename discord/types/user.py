@@ -36,12 +36,13 @@ class PartialUser(TypedDict):
     username: str
     discriminator: str
     avatar: Optional[str]
-    avatar_decoration_data: NotRequired[Optional[UserAvatarDecorationData]]
+    avatar_decoration_data: NotRequired[Optional[AvatarDecorationData]]
     public_flags: NotRequired[int]
     bot: NotRequired[bool]
     system: NotRequired[bool]
     global_name: Optional[str]
-    premium_type: NotRequired[PremiumType]
+    primary_guild: NotRequired[Optional[PrimaryGuild]]
+    display_name_styles: Optional[DisplayNameStyle]
 
 
 ConnectionType = Literal[
@@ -70,6 +71,8 @@ ConnectionType = Literal[
 ]
 ConnectionVisibilty = Literal[0, 1]
 PremiumType = Literal[0, 1, 2, 3]
+DisplayNameFont = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+DisplayNameEffect = Literal[1, 2, 3, 4, 5, 6]
 
 
 class APIUser(PartialUser):
@@ -91,12 +94,32 @@ class User(APIUser, total=False):
     phone: Optional[str]
     token: str
     nsfw_allowed: Optional[bool]
+    premium_type: PremiumType
+    desktop: bool
+    mobile: bool
 
 
-class UserAvatarDecorationData(TypedDict):
+class DisplayNameStyle(TypedDict):
+    font_id: DisplayNameFont
+    effect_id: DisplayNameEffect
+    colors: List[int]  # 1-2
+
+
+class UserWithToken(User):
+    token: str
+
+
+class AvatarDecorationData(TypedDict):
     asset: str
-    sku_id: NotRequired[Snowflake]
+    sku_id: Snowflake
     expires_at: Optional[int]
+
+
+class PrimaryGuild(TypedDict):
+    identity_guild_id: Optional[int]
+    identity_enabled: Optional[bool]
+    tag: Optional[str]
+    badge: Optional[str]
 
 
 class PomeloAttempt(TypedDict):
@@ -150,6 +173,7 @@ ProtoSettingsType = Literal[1, 2, 3]
 
 class ProtoSettings(TypedDict):
     settings: str
+    out_of_date: NotRequired[bool]
 
 
 class _ConsentSettings(TypedDict):
@@ -257,9 +281,15 @@ class FriendSuggestion(TypedDict):
     from_suggested_user_contacts: NotRequired[bool]
 
 
-class FriendToken(TypedDict):
-    friend_token: str
-
-
 class Report(TypedDict):
     report_id: Snowflake
+
+
+class UserAvatar(TypedDict):
+    id: Snowflake
+    storage_hash: str
+    description: Optional[str]
+
+
+class UserAvatars(TypedDict):
+    avatars: List[UserAvatar]

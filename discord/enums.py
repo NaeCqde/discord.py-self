@@ -21,6 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 """
+
 from __future__ import annotations
 
 import types
@@ -39,6 +40,8 @@ __all__ = (
     'AuditLogAction',
     'AuditLogActionCategory',
     'UserFlags',
+    'NameFont',
+    'NameEffect',
     'ActivityType',
     'NotificationLevel',
     'HighlightLevel',
@@ -131,21 +134,18 @@ __all__ = (
     'MessageReferenceType',
 )
 
-if TYPE_CHECKING:
-    from typing_extensions import Self
-
 
 def _create_value_cls(name: str, comparable: bool):
     # All the type ignores here are due to the type checker being unable to recognise
     # Runtime type creation without exploding.
     cls = namedtuple('_EnumValue_' + name, 'name value')
-    cls.__repr__ = lambda self: f'<{name}.{self.name}: {self.value!r}>'  # type: ignore
-    cls.__str__ = lambda self: f'{name}.{self.name}'  # type: ignore
+    cls.__repr__ = lambda self: f'<{name}.{self.name}: {self.value!r}>'
+    cls.__str__ = lambda self: f'{name}.{self.name}'
     if comparable:
-        cls.__le__ = lambda self, other: isinstance(other, self.__class__) and self.value <= other.value  # type: ignore
-        cls.__ge__ = lambda self, other: isinstance(other, self.__class__) and self.value >= other.value  # type: ignore
-        cls.__lt__ = lambda self, other: isinstance(other, self.__class__) and self.value < other.value  # type: ignore
-        cls.__gt__ = lambda self, other: isinstance(other, self.__class__) and self.value > other.value  # type: ignore
+        cls.__le__ = lambda self, other: isinstance(other, self.__class__) and self.value <= other.value
+        cls.__ge__ = lambda self, other: isinstance(other, self.__class__) and self.value >= other.value
+        cls.__lt__ = lambda self, other: isinstance(other, self.__class__) and self.value < other.value
+        cls.__gt__ = lambda self, other: isinstance(other, self.__class__) and self.value > other.value
     return cls
 
 
@@ -160,7 +160,7 @@ class EnumMeta(type):
         _enum_member_map_: ClassVar[Dict[str, Any]]
         _enum_value_map_: ClassVar[Dict[Any, Any]]
 
-    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: Dict[str, Any], *, comparable: bool = False) -> Self:
+    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: Dict[str, Any], *, comparable: bool = False) -> EnumMeta:
         value_mapping = {}
         member_mapping = {}
         member_names = []
@@ -696,6 +696,27 @@ class UserFlags(Enum):
     collaborator = 1125899906842624
     restricted_collaborator = 2251799813685248
 
+class NameFont(Enum):
+    default = 11
+    bangers = 1
+    bio_rhyme = 2
+    cherry_bomb = 3
+    chicle = 4
+    compagnon = 5
+    museo_moderno = 6
+    neo_castel = 7
+    pixelify = 8
+    ribes = 9
+    sinistre = 10
+    zilla_slab = 12
+
+class NameEffect(Enum):
+    solid = 1
+    gradient = 2
+    neon = 3
+    toon = 4
+    pop = 5
+    glow = 6
 
 class ActivityType(Enum):
     unknown = -1
@@ -1060,6 +1081,40 @@ class EmbeddedActivityReleasePhase(Enum):
 
 
 T = TypeVar('T')
+_UNICODE_LANG_MAP: Dict[str, str] = {
+    'bg': 'bg-BG',
+    'zh-CN': 'zh-CN',
+    'zh-TW': 'zh-TW',
+    'hr': 'hr-HR',
+    'cs': 'cs-CZ',
+    'da': 'da-DK',
+    'nl': 'nl-NL',
+    'en-US': 'en-US',
+    'en-GB': 'en-GB',
+    'fi': 'fi-FI',
+    'fr': 'fr-FR',
+    'de': 'de-DE',
+    'el': 'el-GR',
+    'hi': 'hi-IN',
+    'hu': 'hu-HU',
+    'id': 'id-ID',
+    'it': 'it-IT',
+    'ja': 'ja-JP',
+    'ko': 'ko-KR',
+    'lt': 'lt-LT',
+    'no': 'no-NO',
+    'pl': 'pl-PL',
+    'pt-BR': 'pt-BR',
+    'ro': 'ro-RO',
+    'ru': 'ru-RU',
+    'es-ES': 'es-ES',
+    'es-419': 'es-419',
+    'sv-SE': 'sv-SE',
+    'th': 'th-TH',
+    'tr': 'tr-TR',
+    'uk': 'uk-UA',
+    'vi': 'vi-VN',
+}
 
 
 class Locale(Enum):
@@ -1099,6 +1154,17 @@ class Locale(Enum):
 
     def __str__(self) -> str:
         return self.value
+
+    @property
+    def language_code(self) -> str:
+        """:class:`str`: Returns the locale's BCP 47 language code in the format of ``language-COUNTRY``.
+
+        This is derived from a predefined mapping based on Discord's supported locales.
+        If no mapping exists for the current locale, this returns the raw locale value as a fallback.
+
+        .. versionadded:: 2.1
+        """
+        return _UNICODE_LANG_MAP.get(self.value, self.value)
 
 
 E = TypeVar('E', bound='Enum')
@@ -1152,28 +1218,36 @@ AppCommandType = ApplicationCommandType
 
 
 class ConnectionType(Enum):
+    amazon_music = 'amazon-music'
     battle_net = 'battlenet'
+    bluesky = 'bluesky'
+    bungie = 'bungie'
     contacts = 'contacts'
     crunchyroll = 'crunchyroll'
+    domain = 'domain'
     ebay = 'ebay'
     epic_games = 'epicgames'
     facebook = 'facebook'
     github = 'github'
     instagram = 'instagram'
     league_of_legends = 'leagueoflegends'
+    mastodon = 'mastodon'
     paypal = 'paypal'
     playstation = 'playstation'
+    playstation_stg = 'playstation-stg'
     reddit = 'reddit'
+    roblox = 'roblox'
     riot_games = 'riotgames'
     samsung = 'samsung'
+    soundcloud = 'soundcloud'
     spotify = 'spotify'
     skype = 'skype'
     steam = 'steam'
     tiktok = 'tiktok'
     twitch = 'twitch'
     twitter = 'twitter'
-    youtube = 'youtube'
     xbox = 'xbox'
+    youtube = 'youtube'
 
     def __str__(self) -> str:
         return self.value
@@ -1258,6 +1332,7 @@ class SubscriptionDiscountType(Enum):
     entitlement = 2
     premium_legacy_upgrade_promotion = 3
     premium_trial = 4
+    default = 5
 
 
 class SubscriptionInterval(Enum):
@@ -1265,13 +1340,29 @@ class SubscriptionInterval(Enum):
     year = 2
     day = 3
 
+    @property
+    def duration(self) -> int:
+        _INTERVAL_TABLE = {
+            SubscriptionInterval.day: 1,
+            SubscriptionInterval.month: 30,
+            SubscriptionInterval.year: 365,
+        }
+        return _INTERVAL_TABLE[self]
+
 
 class SubscriptionPlanPurchaseType(Enum):
     default = 0
     gift = 1
     sale = 2
+    premium_tier_1 = 3
     nitro_classic = 3
+    premium_tier_2 = 4
     nitro = 4
+    mobile = 5
+    premium_tier_3 = 6
+    nitro_basic = 6
+    mobile_premium_tier_2 = 7
+    mobile_nitro = 7
 
 
 class PaymentStatus(Enum):
@@ -1350,6 +1441,7 @@ class SKUGenre(Enum):
     action_adventure = 9
     action_rpg = 2
     adventure = 8
+    arcade = 68
     artillery = 50
     baseball = 34
     basketball = 35
@@ -1373,6 +1465,7 @@ class SKUGenre(Enum):
     golf = 40
     hack_and_slash = 4
     hockey = 41
+    indie = 67
     life_simulator = 31
     light_gun = 24
     massively_multiplayer = 18
@@ -1384,6 +1477,7 @@ class SKUGenre(Enum):
     party_mini_game = 63
     pinball = 64
     platformer = 5
+    point_and_click = 69
     psychological_horror = 12
     puzzle = 57
     rpg = 22
@@ -1402,6 +1496,7 @@ class SKUGenre(Enum):
     surfing_wakeboarding = 46
     survival = 7
     survival_horror = 14
+    tactical = 66
     tower_defense = 52
     track_field = 45
     train_simulator = 30
@@ -1426,18 +1521,21 @@ class OperatingSystem(Enum):
 
     android = -1
     ios = -2
-    unknown = -3
+    playstation = -3
+    unknown = -99
 
     @classmethod
-    def from_string(cls, value: str) -> Self:
+    def from_string(cls, value: str) -> OperatingSystem:
         lookup = {
             'windows': cls.windows,
             'win32': cls.windows,
             'macos': cls.macos,
             'darwin': cls.macos,
+            'osx': cls.macos,
             'linux': cls.linux,
             'android': cls.android,
             'ios': cls.ios,
+            'playstation': cls.playstation,
             'unknown': cls.unknown,
         }
         return lookup.get(value, create_unknown_value(cls, value))
@@ -1446,12 +1544,8 @@ class OperatingSystem(Enum):
         lookup = {
             OperatingSystem.windows: 'win32',
             OperatingSystem.macos: 'darwin',
-            OperatingSystem.linux: 'linux',
-            OperatingSystem.android: 'android',
-            OperatingSystem.ios: 'ios',
-            OperatingSystem.unknown: 'unknown',
         }
-        return lookup[self]
+        return lookup.get(self, self.name)
 
     def __str__(self):
         return self.to_string()
@@ -1705,6 +1799,14 @@ class PurchaseNotificationType(Enum):
 class ReactionType(Enum):
     normal = 0
     burst = 1
+
+
+class PromotionType(Enum):
+    bogo = 1
+    partner = 2
+    third_party_inbound = 3
+    third_party_outbound = 4
+    marketing_moment = 5
 
 
 def create_unknown_value(cls: Type[E], val: Any) -> E:

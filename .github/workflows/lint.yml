@@ -20,10 +20,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up CPython 3.8
+      - name: Set up CPython
         uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.9'
 
       - name: Install dependencies
         id: install-deps
@@ -39,7 +39,7 @@ jobs:
       - name: Run Pyright
         uses: jakebailey/pyright-action@v1
         with:
-          version: '1.1.316'
+          version: '1.1.394'
           warnings: false
           no-comments: false
 

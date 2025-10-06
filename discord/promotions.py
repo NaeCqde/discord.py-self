@@ -24,10 +24,10 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional, Union
 
-from .enums import PaymentSourceType, try_enum
+from .enums import PaymentSourceType, PromotionType, SubscriptionInterval, try_enum
 from .flags import PromotionFlags
 from .mixins import Hashable
 from .subscriptions import SubscriptionTrial
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         Promotion as PromotionPayload,
         TrialOffer as TrialOfferPayload,
         DiscountOffer as DiscountOfferPayload,
+        Discount as DiscountPayload,
         UserOffer as UserOfferPayload,
         PricingPromotion as PricingPromotionPayload,
     )
@@ -49,6 +50,7 @@ __all__ = (
     'UserOffer',
     'TrialOffer',
     'DiscountOffer',
+    'Discount',
     'PricingPromotion',
 )
 
@@ -80,6 +82,10 @@ class Promotion(Hashable):
     ----------
     id: :class:`int`
         The promotion ID.
+    type: :class:`PromotionType`
+        The type of promotion.
+
+        .. versionadded:: 2.1
     trial_id: Optional[:class:`int`]
         The trial ID of the inbound promotion, if applicable.
     starts_at: :class:`datetime.datetime`
@@ -97,6 +103,10 @@ class Promotion(Hashable):
         The description of the outbound promotion.
     outbound_link: :class:`str`
         The redemption page of the outbound promotion, used to claim it.
+    outbound_redemption_ends_at: Optional[:class:`datetime.datetime`]
+        The end date of the outbound promotion's redemption period.
+
+        .. versionadded:: 2.1
     outbound_restricted_countries: List[:class:`str`]
         The countries that the outbound promotion is not available in.
     inbound_title: Optional[:class:`str`]
@@ -113,6 +123,7 @@ class Promotion(Hashable):
 
     __slots__ = (
         'id',
+        'type',
         'trial_id',
         'starts_at',
         'ends_at',
@@ -121,6 +132,7 @@ class Promotion(Hashable):
         'outbound_title',
         'outbound_description',
         'outbound_link',
+        'outbound_redemption_ends_at',
         'outbound_restricted_countries',
         'inbound_title',
         'inbound_description',
@@ -145,6 +157,7 @@ class Promotion(Hashable):
         promotion: PromotionPayload = data.get('promotion', data)
 
         self.id: int = int(promotion['id'])
+        self.type = try_enum(PromotionType, promotion.get('type', 0))
         self.trial_id: Optional[int] = _get_as_snowflake(promotion, 'trial_id')
         self.starts_at: datetime = parse_time(promotion['start_date'])
         self.ends_at: datetime = parse_time(promotion['end_date'])
@@ -152,18 +165,19 @@ class Promotion(Hashable):
         self.code: Optional[str] = data.get('code')
         self._flags: int = promotion.get('flags', 0)
 
-        self.outbound_title: str = promotion['outbound_title']
-        self.outbound_description: str = promotion['outbound_redemption_modal_body']
+        self.outbound_title: str = promotion.get('outbound_title', '')
+        self.outbound_description: str = promotion.get('outbound_redemption_modal_body', '')
         self.outbound_link: str = promotion.get(
             'outbound_redemption_page_link',
             promotion.get('outbound_redemption_url_format', '').replace('{code}', self.code or '{code}'),
         )
+        self.outbound_redemption_ends_at: Optional[datetime] = parse_time(promotion.get('outbound_redemption_end_date'))
         self.outbound_restricted_countries: List[str] = promotion.get('outbound_restricted_countries', [])
         self.inbound_title: Optional[str] = promotion.get('inbound_header_text')
         self.inbound_description: Optional[str] = promotion.get('inbound_body_text')
         self.inbound_link: Optional[str] = promotion.get('inbound_help_center_link')
         self.inbound_restricted_countries: List[str] = promotion.get('inbound_restricted_countries', [])
-        self.terms_and_conditions: str = promotion['outbound_terms_and_conditions']
+        self.terms_and_conditions: str = promotion.get('outbound_terms_and_conditions', '')
 
     @property
     def flags(self) -> PromotionFlags:
@@ -337,13 +351,18 @@ class TrialOffer(Hashable):
 
         Raises
         ------
-        NotFound
-            The trial offer was not found.
         HTTPException
             Acknowledging the trial offer failed.
         """
-        data = await self._state.http.ack_trial_offer(self.id)
-        self._update(data)
+        data = await self._state.http.ack_user_offer(trial_offer_id=self.id)
+        if not data:
+            return
+
+        # The type checker has no idea what is going on here
+        if data.get('user_discount_offer') and int(data['user_discount_offer']['id']) == self.id:  # type: ignore
+            self._update(data['user_discount_offer'])  # type: ignore
+        elif data.get('user_discount') and int(data['user_discount']['id']) == self.id:  # type: ignore
+            self._update(data['user_discount'])  # type: ignore
 
 
 class DiscountOffer(Hashable):
@@ -375,6 +394,8 @@ class DiscountOffer(Hashable):
         When the discount offer was applied.
     discount_id: :class:`int`
         The ID of the discount.
+    discount: :class:`Discount`
+        The discount offered.
     """
 
     __slots__ = (
@@ -382,6 +403,7 @@ class DiscountOffer(Hashable):
         'expires_at',
         'applied_at',
         'discount_id',
+        'discount',
         '_state',
     )
 
@@ -394,9 +416,10 @@ class DiscountOffer(Hashable):
         self.expires_at: Optional[datetime] = parse_time(data.get('expires_at'))
         self.applied_at: Optional[datetime] = parse_time(data.get('applied_at'))
         self.discount_id: int = int(data['discount_id'])
+        self.discount: Discount = Discount(data['discount'])
 
     def __repr__(self) -> str:
-        return f'<DiscountOffer id={self.id} discount_id={self.discount_id}>'
+        return f'<DiscountOffer id={self.id} discount={self.discount!r}>'
 
     def is_acked(self) -> bool:
         """:class:`bool`: Checks if the discount offer has been acknowledged."""
@@ -416,7 +439,7 @@ class DiscountOffer(Hashable):
         if not data:
             return
 
-        # The type checker has no idea what is going on here for some reason
+        # The type checker has no idea what is going on here
         if data.get('user_discount_offer') and int(data['user_discount_offer']['id']) == self.id:  # type: ignore
             self._update(data['user_discount_offer'])  # type: ignore
         elif data.get('user_discount') and int(data['user_discount']['id']) == self.id:  # type: ignore
@@ -435,6 +458,83 @@ class DiscountOffer(Hashable):
             Redeeming the discount offer failed.
         """
         await self._state.http.redeem_user_offer(self.id)
+
+
+class Discount(Hashable):
+    """Represents a Discord subscription discount.
+
+    .. container:: operations
+
+        .. describe:: x != y
+
+            Checks if two discounts are not equal.
+
+        .. describe:: hash(x)
+
+            Returns the discount's hash.
+
+    .. versionadded:: 2.1
+
+    Attributes
+    ----------
+    id: :class:`int`
+        The ID of the discount.
+    amount: :class:`int`
+        The amount of the discount.
+    created_at: :class:`datetime.datetime`
+        When the discount was created.
+    starts_at: Optional[:class:`datetime.datetime`]
+        When the discount starts.
+    ends_at: Optional[:class:`datetime.datetime`]
+        When the discount ends.
+    subscription_plan_ids: List[:class:`int`]
+        The IDs of the subscription plans the discount applies to.
+    sku_group_ids: List[:class:`int`]
+        The IDs of the SKU groups the discount applies to.
+    sku_ids: List[:class:`int`]
+        The IDs of the SKUs the discount applies to.
+    usage_limit: :class:`int`
+        How many times the user can use the discount.
+    interval: :class:`SubscriptionInterval`
+        The interval of the discount.
+    interval_count: :class:`int`
+        The number of intervals in one usage of the discount.
+    """
+
+    __slots__ = (
+        'id',
+        'amount',
+        'created_at',
+        'starts_at',
+        'ends_at',
+        'subscription_plan_ids',
+        'sku_group_ids',
+        'sku_ids',
+        'usage_limit',
+        'interval',
+        'interval_count',
+    )
+
+    def __init__(self, data: DiscountPayload) -> None:
+        self.id: int = int(data['id'])
+        self.amount: int = data['amount']
+        self.created_at: datetime = parse_time(data['created_at'])
+        self.starts_at: Optional[datetime] = parse_time(data.get('starts_at'))
+        self.ends_at: Optional[datetime] = parse_time(data.get('ends_at'))
+        self.subscription_plan_ids: List[int] = [int(plan_id) for plan_id in data.get('plan_ids') or []]
+        self.sku_group_ids: List[int] = [int(sku_group_id) for sku_group_id in data.get('sku_group_ids') or []]
+        self.sku_ids: List[int] = [int(sku_id) for sku_id in data.get('sku_ids') or []]
+        self.usage_limit: int = data['user_usage_limit']
+        self.interval: SubscriptionInterval = try_enum(SubscriptionInterval, data['user_usage_limit_interval'])
+        self.interval_count: int = data['user_usage_limit_interval_count']
+
+    def __repr__(self) -> str:
+        return f'<Discount id={self.id} amount={self.amount} starts_at={self.starts_at!r} ends_at={self.ends_at!r}>'
+
+    @property
+    def duration(self) -> timedelta:
+        """:class:`datetime.timedelta`: How long one usage of the discount lasts."""
+        return timedelta(days=self.interval_count * self.interval.duration)
 
 
 class PricingPromotion:

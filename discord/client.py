@@ -38,6 +38,7 @@ from typing import (
     Generator,
     List,
     Literal,
+    NamedTuple,
     Optional,
     overload,
     Sequence,
@@ -50,7 +51,7 @@ from typing import (
 
 import aiohttp
 
-from .user import _UserTag, User, ClientUser, Note
+from .user import _UserTag, RecentAvatar, User, ClientUser
 from .invite import Invite
 from .template import Template
 from .widget import Widget
@@ -149,6 +150,16 @@ class _LoopSentinel:
 _loop: Any = _LoopSentinel()
 
 
+class RTCRegion(NamedTuple):
+    region: str
+    ips: List[str]
+
+
+class LocationInfo(NamedTuple):
+    country_code: str
+    subdivision_code: Optional[str]
+
+
 class Client:
     r"""Represents a client connection that connects to Discord.
     This class is used to interact with the Discord WebSocket and API.
@@ -162,6 +173,10 @@ class Client:
             .. versionadded:: 2.0
 
     A number of options can be passed to the :class:`Client`.
+
+    .. versionchanged:: 2.1
+
+        Removed the ``http_trace`` parameter.
 
     Parameters
     -----------
@@ -200,7 +215,7 @@ class Client:
 
             If this is set to ``False``, the following consequences will occur:
 
-            - Large guilds (over 75,000 members) will not dispatch any non-stateful events (e.g. :func:`.on_message`, :func:`.on_reaction_add`, :func:`.on_typing`, etc.)
+            - Large guilds (over 75,000 members) may not dispatch any non-stateful events (e.g. :func:`.on_message`, :func:`.on_reaction_add`, :func:`.on_typing`, etc.)
             - :attr:`~Guild.threads` will only contain threads the client has joined.
             - Guilds will not be chunkable and member events (e.g. :func:`.on_member_update`) will not be dispatched.
                 - Most :func:`.on_user_update` occurences will not be dispatched.
@@ -260,12 +275,6 @@ class Client:
         The default behavior is ``True`` (what the client does).
 
         .. versionadded:: 2.0
-    http_trace: :class:`aiohttp.TraceConfig`
-        The trace configuration to use for tracking HTTP requests the library does using ``aiohttp``.
-        This allows you to check requests the library is using. For more information, check the
-        `aiohttp documentation <https://docs.aiohttp.org/en/stable/client_advanced.html#client-tracing>`_.
-
-        .. versionadded:: 2.0
     captcha_handler: Optional[Callable[[:class:`.CaptchaRequired`, :class:`.Client`], Awaitable[:class:`str`]]
         A function that solves captcha challenges.
 
@@ -287,6 +296,24 @@ class Client:
         A list of preferred RTC regions to connect to. This overrides Discord's suggested list.
 
         .. versionadded:: 2.1
+    canary: :class:`bool`
+        Whether to forcefully route all requests to the canary API. This is useful for testing new features.
+
+        Note that this doesn't use the canary release channel.
+
+        .. versionadded:: 2.1
+    apm_tracing: :class:`bool`
+        Whether to enable Application Performance Monitoring (APM) tracing.
+
+        This will print debug logs for every HTTP request made by the library with an APM trace URL
+        that Discord employees can view.
+
+        .. versionadded:: 2.1
+    timezone: :class:`str`
+        The timezone name to announce to Discord, in the format of `Region/City`.
+        Defaults to system timezone.
+
+        .. versionadded:: 2.1
 
     Attributes
     -----------
@@ -300,22 +327,22 @@ class Client:
         self.ws: DiscordWebSocket = None  # type: ignore
         self._listeners: Dict[str, List[Tuple[asyncio.Future, Callable[..., bool]]]] = {}
 
-        proxy: Optional[str] = options.pop('proxy', None)
-        proxy_auth: Optional[aiohttp.BasicAuth] = options.pop('proxy_auth', None)
-        unsync_clock: bool = options.pop('assume_unsync_clock', True)
-        http_trace: Optional[aiohttp.TraceConfig] = options.pop('http_trace', None)
-        max_ratelimit_timeout: Optional[float] = options.pop('max_ratelimit_timeout', None)
         self.captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]] = options.pop(
             'captcha_handler', None
         )
         self.http: HTTPClient = HTTPClient(
-            proxy=proxy,
-            proxy_auth=proxy_auth,
-            unsync_clock=unsync_clock,
-            http_trace=http_trace,
+            loop=self.loop,
+            proxy=options.pop('proxy', None),
+            proxy_auth=options.pop('proxy_auth', None),
+            unsync_clock=options.pop('assume_unsync_clock', True),
             captcha=self.handle_captcha,
-            max_ratelimit_timeout=max_ratelimit_timeout,
+            max_ratelimit_timeout=options.pop('max_ratelimit_timeout', None),
+            default_ratelimit_limit=options.pop('default_ratelimit_limit', None) or 1,
             locale=lambda: self._connection.locale,
+            debug_options=self._get_debug_options(**options),
+            rpc_proxy=options.pop('rpc_proxy', None),
+            proxy_gateway=options.pop('proxy_gateway', True),
+            timezone=options.pop('timezone', None) or None,
         )
 
         self._handlers: Dict[str, Callable[..., None]] = {
@@ -365,6 +392,20 @@ class Client:
             client=self,
             **options,
         )
+
+    def _get_debug_options(self, **options: Any) -> Sequence[str]:
+        # The list is as follows:
+        # trace, canary, logGatewayEvents, logOverlayEvents, logAnalyticsEvents, sourceMapsEnabled, axeEnabled, cssDebuggingEnabled, layoutDebuggingEnabled
+        # analyticsDebuggerEnabled, bugReporterEnabled, idleStatusIndicatorEnabled, onlyShowPreviewAppCollections, disableAppCollectionsCache, isStreamInfoOverlayEnabled, preventPopoutClose
+        # Only the first two seem to have any API implications
+        debug_options = options.pop('debug_options', None)
+        if debug_options is None:
+            debug_options = ['bugReporterEnabled']
+        if options.pop('canary', None):
+            debug_options.insert(0, 'canary')
+        if options.pop('trace', None):
+            debug_options.insert(0, 'trace')
+        return debug_options
 
     def _handle_ready(self) -> None:
         self._ready.set()
@@ -828,6 +869,7 @@ class Client:
         loop = asyncio.get_running_loop()
         self.loop = loop
         self._connection.loop = loop
+        self.http.loop = loop
         await self._connection.async_setup()
 
         self._ready = asyncio.Event()
@@ -896,6 +938,7 @@ class Client:
         data = await state.http.static_login(token.strip())
         state.analytics_token = data.get('analytics_token', '')
         state.user = ClientUser(state=state, data=data)
+        state._users[state.user.id] = state.user  # type: ignore
         await self.setup_hook()
 
     async def connect(self, *, reconnect: bool = True) -> None:
@@ -1255,7 +1298,7 @@ class Client:
         return any(session.client == ClientType.mobile for session in self._connection._sessions.values())
 
     @property
-    def activities(self) -> Tuple[ActivityTypes]:
+    def activities(self) -> Tuple[ActivityTypes, ...]:
         """Tuple[Union[:class:`.BaseActivity`, :class:`.Spotify`]]: Returns the activities
         the client is currently doing.
 
@@ -1295,7 +1338,7 @@ class Client:
             return activities[0]
 
     @property
-    def client_activities(self) -> Tuple[ActivityTypes]:
+    def client_activities(self) -> Tuple[ActivityTypes, ...]:
         """Tuple[Union[:class:`.BaseActivity`, :class:`.Spotify`]]: Returns the activities
         the client is currently doing through this library, if applicable.
 
@@ -1854,8 +1897,7 @@ class Client:
         self_deaf: :class:`bool`
             Indicates if the client should be self-deafened.
         self_video: :class:`bool`
-            Indicates if the client is using video. Untested & unconfirmed
-            (do not use).
+            Indicates if the client is using video. Do not use.
         """
         state = self._connection
         ws = self.ws
@@ -2441,15 +2483,14 @@ class Client:
         with_mutual_guilds: bool = True,
         with_mutual_friends_count: bool = False,
         with_mutual_friends: bool = True,
-        friend_token: str = MISSING,
     ) -> UserProfile:
         """|coro|
 
         Retrieves a :class:`.UserProfile` based on their user ID.
 
-        You must provide a valid ``friend_token``, share a guild with,
-        be friends with, or have an incoming friend request from this
-        user to get this information, unless the user is a bot.
+        You must share a guild with, be friends with, or have
+        an incoming friend request from this user to
+        get this information, unless the user is a bot.
 
         .. versionchanged:: 2.0
 
@@ -2474,10 +2515,6 @@ class Client:
             This fills in :attr:`.UserProfile.mutual_friends` and :attr:`.UserProfile.mutual_friends_count`.
 
             .. versionadded:: 2.0
-        friend_token: :class:`str`
-            The friend token to use for fetching the profile.
-
-            .. versionadded:: 2.1
 
         Raises
         -------
@@ -2498,7 +2535,6 @@ class Client:
             with_mutual_guilds=with_mutual_guilds,
             with_mutual_friends_count=with_mutual_friends_count,
             with_mutual_friends=with_mutual_friends,
-            friend_token=friend_token or None,
         )
 
         return UserProfile(state=state, data=data)
@@ -2644,12 +2680,17 @@ class Client:
         data = await self.http.get_sticker_pack(pack_id)
         return StickerPack(state=self._connection, data=data)
 
-    async def notes(self) -> List[Note]:
+    async def fetch_notes(self) -> Dict[int, str]:
         """|coro|
 
-        Retrieves a list of :class:`.Note` objects representing all your notes.
+        Retrieves all your user notes.
 
         .. versionadded:: 1.9
+
+        .. versionchanged:: 2.1
+
+            Renamed from ``notes`` to :meth:`fetch_notes` for forward compatibility.
+            This method now returns a dictionary mapping user IDs to notes instead of a list of ``Note`` objects.
 
         Raises
         -------
@@ -2658,23 +2699,27 @@ class Client:
 
         Returns
         --------
-        List[:class:`.Note`]
-            All your notes.
+        Dict[:class:`int`, :class:`str`]
+            A dictionary mapping user IDs to their notes.
         """
         state = self._connection
         data = await state.http.get_notes()
-        return [Note(state, int(id), note=note) for id, note in data.items()]
+        return {int(id): note for id, note in data.items()}
 
-    async def fetch_note(self, user_id: int, /) -> Note:
+    async def fetch_note(self, user_id: int, /) -> Optional[str]:
         """|coro|
 
-        Retrieves a :class:`.Note` for the specified user ID.
+        Retrieves a note for the specified user ID.
 
         .. versionadded:: 1.9
 
         .. versionchanged:: 2.0
 
             ``user_id`` parameter is now positional-only.
+
+        .. versionchanged:: 2.1
+
+            This method now returns a :class:`str` instead of a ``Note``.
 
         Parameters
         -----------
@@ -2688,12 +2733,15 @@ class Client:
 
         Returns
         --------
-        :class:`.Note`
+        Optional[:class:`str`]
             The note you requested.
         """
-        note = Note(self._connection, int(user_id))
-        await note.fetch()
-        return note
+        try:
+            data = await self.http.get_note(user_id)
+        except NotFound:
+            # Bad UX to propagate the 404 for unknown notes
+            return None
+        return data.get('note')
 
     async def fetch_connections(self) -> List[Connection]:
         """|coro|
@@ -3035,32 +3083,6 @@ class Client:
         data = await state.http.get_friend_suggestions()
         return [FriendSuggestion(state=state, data=d) for d in data]
 
-    async def friend_token(self) -> str:
-        """|coro|
-
-        Retrieves your friend token.
-
-        These can be used to fetch the user's profile without a mutual
-        and add the user as a friend regardless of their friend request settings.
-
-        To share, append it to the user's URL like so:
-        ``https://discord.com/users/{user.id}?friend_token={friend_token}``.
-
-        .. versionadded:: 2.1
-
-        Raises
-        -------
-        HTTPException
-            Retrieving your friend token failed.
-
-        Returns
-        --------
-        :class:`str`
-            Your friend token.
-        """
-        data = await self.http.get_friend_token()
-        return data['friend_token']
-
     async def fetch_country_code(self) -> str:
         """|coro|
 
@@ -3081,7 +3103,28 @@ class Client:
         data = await self.http.get_country_code()
         return data['country_code']
 
-    async def fetch_preferred_rtc_regions(self) -> List[Tuple[str, List[str]]]:
+    async def fetch_location_info(self) -> LocationInfo:
+        """|coro|
+
+        Retrieves the location information of the client.
+
+        .. versionadded:: 2.1
+
+        Raises
+        -------
+        HTTPException
+            Retrieving the location information failed.
+
+        Returns
+        -------
+        Tuple[:class:`str`, Optional[:class:`str`]]
+            The country code and subdivision code of the client.
+            This is also accessible as a namedtuple with ``country_code`` and ``subdivision_code`` attributes.
+        """
+        data = await self.http.get_location_info()
+        return LocationInfo(data['country_code'], data['subdivision_code'])
+
+    async def fetch_preferred_rtc_regions(self) -> List[RTCRegion]:
         """|coro|
 
         Retrieves the preferred RTC regions of the client.
@@ -3102,9 +3145,10 @@ class Client:
         -------
         List[Tuple[:class:`str`, List[:class:`str`]]]
             The region name and list of IPs for the closest voice regions.
+            This is also accessible as a namedtuple with ``region`` and ``ips`` attributes.
         """
         data = await self.http.get_preferred_voice_regions()
-        return [(v['region'], v['ips']) for v in data]
+        return [RTCRegion(v['region'], v['ips']) for v in data]
 
     async def create_dm(self, user: Snowflake, /) -> DMChannel:
         """|coro|
@@ -3523,7 +3567,7 @@ class Client:
     async def search_companies(self, query: str, /) -> List[Company]:
         """|coro|
 
-        Query your created companies.
+        Query companies registered on Discord.
 
         .. versionadded:: 2.0
 
@@ -3546,10 +3590,38 @@ class Client:
         data = await state.http.search_companies(query)
         return [Company(data=d) for d in data]
 
+    async def fetch_company(self, company_id: int, /) -> Company:
+        """|coro|
+
+        Retrieves a company with the given ID.
+
+        .. versionadded:: 2.1
+
+        Parameters
+        -----------
+        company_id: :class:`int`
+            The ID of the company to fetch.
+
+        Raises
+        -------
+        NotFound
+            The company was not found.
+        HTTPException
+            Retrieving the company failed.
+
+        Returns
+        -------
+        :class:`.Company`
+            The retrieved company.
+        """
+        state = self._connection
+        data = await state.http.get_company(company_id)
+        return Company(data=data)
+
     async def activity_statistics(self) -> List[ApplicationActivityStatistics]:
         """|coro|
 
-        Retrieves the available activity usage statistics for your owned applications.
+        Retrieves the available activity usage statistics for the games you play.
 
         .. versionadded:: 2.0
 
@@ -3567,12 +3639,19 @@ class Client:
         data = await state.http.get_activity_statistics()
         return [ApplicationActivityStatistics(state=state, data=d) for d in data]
 
-    async def relationship_activity_statistics(self) -> List[ApplicationActivityStatistics]:
+    async def global_activity_statistics(
+        self, *, with_users: bool = True, with_applications: bool = True
+    ) -> List[ApplicationActivityStatistics]:
         """|coro|
 
-        Retrieves the available activity usage statistics for your relationships' owned applications.
+        Retrieves the available activity usage statistics for the games your friends and
+        implicit relationships play.
 
         .. versionadded:: 2.0
+
+        .. versionchanged:: 2.1
+
+            Renamed from ``relationship_activity_statistics()`` to ``global_activity_statistics()``.
 
         Raises
         -------
@@ -3585,7 +3664,7 @@ class Client:
             The activity statistics.
         """
         state = self._connection
-        data = await state.http.get_global_activity_statistics()
+        data = await state.http.get_global_activity_statistics(with_users=with_users, with_applications=with_applications)
         return [ApplicationActivityStatistics(state=state, data=d) for d in data]
 
     async def payment_sources(self) -> List[PaymentSource]:
@@ -3896,7 +3975,7 @@ class Client:
         payment_source_token: Optional[str] = None,
         purchase_token: Optional[str] = None,
         return_url: Optional[str] = None,
-        gateway_checkout_context: Optional[str] = None,
+        gateway_checkout_context: Optional[MetadataObject] = None,
         code: Optional[str] = None,
         metadata: Optional[MetadataObject] = None,
         guild: Optional[Snowflake] = None,
@@ -3923,7 +4002,7 @@ class Client:
             The purchase token to use.
         return_url: Optional[:class:`str`]
             The URL to return to after the payment is complete.
-        gateway_checkout_context: Optional[:class:`str`]
+        gateway_checkout_context: Optional[Dict[:class:`str`, Any]]
             The current checkout context.
         code: Optional[:class:`str`]
             Unknown.
@@ -4174,12 +4253,18 @@ class Client:
         data = await state.http.get_user_offer(payment_gateway=int(payment_gateway) if payment_gateway else None)
         return UserOffer(data=data, state=state)
 
+    @utils.deprecated("Client.user_offer()")
     async def trial_offer(self) -> TrialOffer:
         """|coro|
 
         Retrieves the current trial offer for your account.
 
         .. versionadded:: 2.0
+
+        .. deprecated:: 2.1
+
+            This method is deprecated and will be removed in a future version.
+            Use :meth:`user_offer` instead.
 
         Raises
         -------
@@ -4272,9 +4357,9 @@ class Client:
         scopes: Collection[str],
         response_type: Optional[str] = None,
         redirect_uri: Optional[str] = None,
-        code_challenge_method: Optional[str] = None,
         code_challenge: Optional[str] = None,
         state: Optional[str] = None,
+        nonce: Optional[str] = None,
     ) -> OAuth2Authorization:
         """|coro|
 
@@ -4295,12 +4380,12 @@ class Client:
             The redirect URI that will be used for the authorization, if using the full OAuth2 flow.
             If this isn't provided and ``response_type`` is provided, then the default redirect URI
             for the application will be provided in the returned authorization.
-        code_challenge_method: Optional[:class:`str`]
-            The code challenge method that will be used for the PKCE authorization, if using the full OAuth2 flow.
         code_challenge: Optional[:class:`str`]
-            The code challenge that will be used for the PKCE authorization, if using the full OAuth2 flow.
+            The code challenge that will be used for PKCE authorization, if using the full OAuth2 flow.
         state: Optional[:class:`str`]
-            The state that will be used for authorization security.
+            The state that will be used for authorization security. You will need to verify this yourself.
+        nonce: Optional[:class:`str`]
+            The nonce that will be used for OpenID Connect authorization security. You will need to verify this yourself.
 
         Raises
         -------
@@ -4318,18 +4403,21 @@ class Client:
             list(scopes),
             response_type,
             redirect_uri,
-            code_challenge_method,
+            'S256' if code_challenge else None,
             code_challenge,
             state,
+            nonce,
         )
         return OAuth2Authorization(
             _state=_state,
             data=data,
             scopes=list(scopes),
             response_type=response_type,
-            code_challenge_method=code_challenge_method,
+            original_redirect_uri=redirect_uri,
+            code_challenge_method='S256' if code_challenge else None,
             code_challenge=code_challenge,
             state=state,
+            nonce=nonce,
         )
 
     async def create_authorization(
@@ -4340,9 +4428,9 @@ class Client:
         scopes: Collection[str],
         response_type: Optional[str] = None,
         redirect_uri: Optional[str] = None,
-        code_challenge_method: Optional[str] = None,
         code_challenge: Optional[str] = None,
         state: Optional[str] = None,
+        nonce: Optional[str] = None,
         guild: Snowflake = MISSING,
         channel: Snowflake = MISSING,
         permissions: Permissions = MISSING,
@@ -4366,12 +4454,12 @@ class Client:
             The redirect URI to use for the authorization, if using the full OAuth2 flow.
             If this isn't provided and ``response_type`` is provided, then the default redirect URI
             for the application will be used.
-        code_challenge_method: Optional[:class:`str`]
-            The code challenge method to use for the PKCE authorization, if using the full OAuth2 flow.
         code_challenge: Optional[:class:`str`]
             The code challenge to use for the PKCE authorization, if using the full OAuth2 flow.
         state: Optional[:class:`str`]
-            The state to use for authorization security.
+            The state to use for authorization security. You will need to verify this yourself.
+        nonce: Optional[:class:`str`]
+            The nonce that will be used for OpenID Connect authorization security. You will need to verify this yourself.
         guild: :class:`.Guild`
             The guild to authorize for, if authorizing with the ``applications.commands`` or ``bot`` scopes.
         channel: Union[:class:`.TextChannel`, :class:`.VoiceChannel`, :class:`.StageChannel`]
@@ -4395,9 +4483,10 @@ class Client:
             list(scopes),
             response_type,
             redirect_uri,
-            code_challenge_method,
+            'S256' if code_challenge else None,
             code_challenge,
             state,
+            nonce,
             guild_id=guild.id if guild else None,
             webhook_channel_id=channel.id if channel else None,
             permissions=permissions.value if permissions else None,
@@ -4405,7 +4494,12 @@ class Client:
         return data['location']
 
     async def entitlements(
-        self, *, with_sku: bool = True, with_application: bool = True, entitlement_type: Optional[EntitlementType] = None
+        self,
+        *,
+        with_sku: bool = True,
+        with_application: bool = True,
+        include_ended: bool = True,
+        entitlement_type: Optional[EntitlementType] = None,
     ) -> List[Entitlement]:
         """|coro|
 
@@ -4420,6 +4514,10 @@ class Client:
         with_application: :class:`bool`
             Whether to include the application in the returned entitlements' SKUs.
             The premium subscription application is always returned.
+        include_ended: :class:`bool`
+            Whether to include ended entitlements in the returned list.
+
+            .. versionadded:: 2.1
         entitlement_type: Optional[:class:`.EntitlementType`]
             The type of entitlement to retrieve. If ``None`` then all entitlements are returned.
 
@@ -4437,6 +4535,7 @@ class Client:
         data = await state.http.get_user_entitlements(
             with_sku=with_sku,
             with_application=with_application,
+            exclude_ended=not include_ended,
             entitlement_type=int(entitlement_type) if entitlement_type else None,
         )
         return [Entitlement(state=state, data=d) for d in data]
@@ -4464,7 +4563,7 @@ class Client:
         data = await state.http.get_giftable_entitlements(state.country_code or 'US')
         return [Entitlement(state=state, data=d) for d in data]
 
-    async def premium_entitlements(self, *, exclude_consumed: bool = True) -> List[Entitlement]:
+    async def premium_entitlements(self, *, include_consumed: bool = True) -> List[Entitlement]:
         """|coro|
 
         Retrieves the entitlements this account has granted for the premium application.
@@ -4475,8 +4574,12 @@ class Client:
 
         Parameters
         -----------
-        exclude_consumed: :class:`bool`
-            Whether to exclude consumed entitlements.
+        include_consumed: :class:`bool`
+            Whether to include   consumed entitlements.
+
+            .. versionchanged:: 2.1
+
+                Renamed from ``exclude_consumed`` to ``include_consumed``.
 
         Raises
         -------
@@ -4489,20 +4592,26 @@ class Client:
             The entitlements retrieved.
         """
         return await self.fetch_entitlements(
-            self._connection.premium_subscriptions_application.id, exclude_consumed=exclude_consumed
+            self._connection.premium_subscriptions_application.id, include_consumed=include_consumed
         )
 
-    async def fetch_entitlements(self, application_id: int, /, *, exclude_consumed: bool = True) -> List[Entitlement]:
+    async def fetch_entitlements(self, application_id: int, /, *, include_consumed: bool = True) -> List[Entitlement]:
         """|coro|
 
         Retrieves the entitlements this account has granted for the given application.
+
+        .. versionadded:: 2.0
 
         Parameters
         -----------
         application_id: :class:`int`
             The ID of the application to fetch the entitlements for.
-        exclude_consumed: :class:`bool`
-            Whether to exclude consumed entitlements.
+        include_consumed: :class:`bool`
+            Whether to include consumed entitlements.
+
+            .. versionchanged:: 2.1
+
+                Renamed from ``exclude_consumed`` to ``include_consumed``.
 
         Raises
         -------
@@ -4515,7 +4624,7 @@ class Client:
             The entitlements retrieved.
         """
         state = self._connection
-        data = await state.http.get_user_app_entitlements(application_id, exclude_consumed=exclude_consumed)
+        data = await state.http.get_user_app_entitlements(application_id, exclude_consumed=not include_consumed)
         return [Entitlement(data=entitlement, state=state) for entitlement in data]
 
     async def fetch_gift(
@@ -5551,3 +5660,28 @@ class Client:
         else:
             data = await http.pomelo_attempt_unauthed(username)
         return data['taken']
+
+    async def recent_avatars(self) -> List[RecentAvatar]:
+        """|coro|
+
+        Retrieves the recent avatars for the current user.
+
+        For premium users, the six most recent avatars will be returned.
+        Otherwise, only two will be returned.
+
+        .. versionadded:: 2.1
+
+        Raises
+        ------
+        HTTPException
+            Retrieving the recent avatars failed.
+
+        Returns
+        -------
+        List[:class:`.RecentAvatar`]
+            The recent avatars.
+        """
+        state = self._connection
+        user = state.user
+        data = await state.http.get_recent_avatars()
+        return [RecentAvatar(user=user, data=d) for d in data['avatars']]  # type: ignore # user will be present here

@@ -382,6 +382,20 @@ Debug
                     message or :class:`str` to denote a regular text message.
     :type payload: Union[:class:`bytes`, :class:`str`]
 
+Directory Entries
+~~~~~~~~~~~~~~~~~~
+
+.. function:: on_directory_entry_create(directory_entry)
+              on_directory_entry_update(directory_entry)
+              on_directory_entry_delete(directory_entry)
+
+    Called when an entry is created, updated, or deleted in a directory channel.
+
+    .. versionadded:: 2.1
+
+    :param directory_entry: The directory entry that was created, updated, or deleted.
+    :type directory_entry: :class:`DirectoryEntry`
+
 Gateway
 ~~~~~~~~
 
@@ -541,17 +555,6 @@ Entitlements
     :param application: The library entry that was updated.
     :type application: :class:`LibraryApplication`
 
-.. function:: on_achievement_update(achievement, percent_complete)
-
-    Called when an achievement is updated.
-
-    .. versionadded:: 2.0
-
-    :param achievement: The achievement that was updated.
-    :type achievement: :class:`Achievement`
-    :param percent_complete: The percentage of the acheivement completed.
-    :type percent_complete: :class:`int`
-
 .. function:: on_entitlement_create(entitlement)
 
     Called when an entitlement is added to your account.
@@ -705,14 +708,33 @@ Relationships
 Notes
 ~~~~~~
 
-.. function:: on_note_update(note)
+.. function:: on_note_update(user, note)
 
     Called when a :class:`User`\'s note is updated.
 
     .. versionadded:: 2.0
 
+    .. versionchanged:: 2.1
+
+        Event signature was changed to include the ``user`` parameter.
+
+    :param user: The user whose note was updated.
+    :type user: :class:`User`
     :param note: The note that was updated.
-    :type note: :class:`Note`
+    :type note: :class:`str`
+
+.. function:: on_raw_note_update(user_id, note)
+
+    Called when a :class:`User`\'s note is updated.
+    Unlike :func:`on_note_update`, this is called regardless
+    of the user being in the internal user cache or not.
+
+    .. versionadded:: 2.1
+
+    :param user_id: The ID of the user whose note was updated.
+    :type user_id: :class:`int`
+    :param note: The note that was updated.
+    :type note: :class:`str`
 
 OAuth2
 ~~~~~~~
@@ -2157,6 +2179,86 @@ of :class:`enum.Enum`.
 
         .. versionadded:: 2.1
 
+.. class:: NameFont
+
+    Specifies the font of :class:`DisplayNameStyle`.
+
+    .. attribute:: default
+
+        The default font.
+
+    .. attribute:: bangers
+
+        "Bangers" font.
+
+    .. attribute:: bio_rhyme
+
+        "BioRhyme" font.
+
+    .. attribute:: cherry_bomb
+
+        "Cherry Bomb One" font.
+
+    .. attribute:: chicle
+
+        "Chicle" font.
+
+    .. attribute:: compagnon
+
+        "Compagnon" font.
+
+    .. attribute:: museo_moderno
+
+        "MuseoModerno" font.
+
+    .. attribute:: neo_castel
+
+        "Néo-Castel" font.
+
+    .. attribute:: pixelify
+
+        "Pixelify Sans" font.
+
+    .. attribute:: ribes
+
+        "Ribes" font.
+
+    .. attribute:: sinistre
+
+        "Sinistre" font.
+
+    .. attribute:: zilla_slab
+
+        "Zilla Slab" font.
+
+.. class:: NameEffect
+
+    Specifies the effect of :class:`DisplayNameStyle`.
+
+    .. attribute:: solid
+
+        Displays the first color provided.
+
+    .. attribute:: gradient
+
+        Two color gradient.
+
+    .. attribute:: neon
+
+        Glow around the name.
+
+    .. attribute:: toon
+
+        Subtle vertical gradient and stroke.
+
+    .. attribute:: pop
+
+        Colored dropshadow.
+
+    .. attribute:: glow
+
+        Alternate gradient style.
+
 .. class:: ActivityType
 
     Specifies the type of :class:`Activity`. This is used to check how to
@@ -2623,7 +2725,7 @@ of :class:`enum.Enum`.
         When this is the action, the type of :attr:`~AuditLogEntry.extra` is
         set to an unspecified proxy object with two attributes:
 
-        - ``channel``: A :class:`TextChannel` or :class:`Object` with the channel ID where the members were moved.
+        - ``channel``: An :class:`abc.Connectable` or :class:`Object` with the channel ID where the members were moved.
         - ``count``: An integer specifying how many members were moved.
 
         .. versionadded:: 1.3
@@ -2659,6 +2761,8 @@ of :class:`enum.Enum`.
         Possible attributes for :class:`AuditLogDiff`:
 
         - :attr:`~AuditLogDiff.colour`
+        - :attr:`~AuditLogDiff.secondary_colour`
+        - :attr:`~AuditLogDiff.tertiary_colour`
         - :attr:`~AuditLogDiff.mentionable`
         - :attr:`~AuditLogDiff.hoist`
         - :attr:`~AuditLogDiff.icon`
@@ -2682,6 +2786,8 @@ of :class:`enum.Enum`.
         Possible attributes for :class:`AuditLogDiff`:
 
         - :attr:`~AuditLogDiff.colour`
+        - :attr:`~AuditLogDiff.secondary_colour`
+        - :attr:`~AuditLogDiff.tertiary_colour`
         - :attr:`~AuditLogDiff.mentionable`
         - :attr:`~AuditLogDiff.hoist`
         - :attr:`~AuditLogDiff.icon`
@@ -2699,6 +2805,8 @@ of :class:`enum.Enum`.
         Possible attributes for :class:`AuditLogDiff`:
 
         - :attr:`~AuditLogDiff.colour`
+        - :attr:`~AuditLogDiff.secondary_colour`
+        - :attr:`~AuditLogDiff.tertiary_colour`
         - :attr:`~AuditLogDiff.mentionable`
         - :attr:`~AuditLogDiff.hoist`
         - :attr:`~AuditLogDiff.name`
@@ -2720,6 +2828,7 @@ of :class:`enum.Enum`.
         - :attr:`~AuditLogDiff.channel`
         - :attr:`~AuditLogDiff.uses`
         - :attr:`~AuditLogDiff.max_uses`
+        - :attr:`~AuditLogDiff.flags`
 
     .. attribute:: invite_update
 
@@ -2744,6 +2853,7 @@ of :class:`enum.Enum`.
         - :attr:`~AuditLogDiff.channel`
         - :attr:`~AuditLogDiff.uses`
         - :attr:`~AuditLogDiff.max_uses`
+        - :attr:`~AuditLogDiff.flags`
 
     .. attribute:: webhook_create
 
@@ -4257,6 +4367,12 @@ of :class:`enum.Enum`.
 
         The discount is from a premium trial.
 
+    .. attribute:: default
+
+        The discount is a default discount.
+
+        .. versionadded:: 2.1
+
 .. class:: SubscriptionInterval
 
     Represents the interval of a subscription.
@@ -4293,13 +4409,51 @@ of :class:`enum.Enum`.
 
         The plan is purchased with sale pricing.
 
-    .. attribute:: nitro_classic
+    .. attribute:: premium_tier_1
 
         The plan is purchased with Nitro Classic discounted pricing.
 
-    .. attribute:: nitro
+    .. attribute:: nitro_classic
+
+        Alias of :attr:`SubscriptionPlanPurchaseType.premium_tier_1`.
+
+    .. attribute:: premium_tier_2
 
         The plan is purchased with Nitro discounted pricing.
+
+    .. attribute:: nitro
+
+        Alias of :attr:`SubscriptionPlanPurchaseType.premium_tier_2`.
+
+    .. attribute:: mobile
+
+        The plan is purchased with mobile pricing.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: premium_tier_3
+
+        The plan is purchased with Nitro Basic discounted pricing.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: nitro_basic
+
+        Alias of :attr:`SubscriptionPlanPurchaseType.premium_tier_3`.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: mobile_premium_tier_2
+
+        The plan is purchased with mobile Nitro pricing.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: mobile_nitro
+
+        Alias of :attr:`SubscriptionPlanPurchaseType.mobile_premium_tier_2`.
+
+        .. versionadded:: 2.1
 
 .. class:: PaymentStatus
 
@@ -4612,6 +4766,12 @@ of :class:`enum.Enum`.
 
         The SKU is an adventure game.
 
+    .. attribute:: arcade
+
+        The SKU is an arcade game.
+
+        .. versionadded:: 2.1
+
     .. attribute:: artillery
 
         The SKU is an artillery game.
@@ -4704,6 +4864,12 @@ of :class:`enum.Enum`.
 
         The SKU is a hockey game.
 
+    .. attribute:: indie
+
+        The SKU is an indie game.
+
+        .. versionadded:: 2.1
+
     .. attribute:: life_simulator
 
         The SKU is a life simulator.
@@ -4714,13 +4880,29 @@ of :class:`enum.Enum`.
 
     .. attribute:: massively_multiplayer
 
-        The SKU is a massively multiplayer game.
+        The SKU is a massively multiplayer online game.
 
-    .. attribute:: music
+    .. attribute:: metroidvania
 
-        The SKU is a music game.
+        The SKU is a Metroidvania game.
 
-    .. attribute:: party
+    .. attribute:: mmorpg
+
+        The SKU is a MMORPG.
+
+    .. attribute:: moba
+
+        The SKU is a MOBA.
+
+    .. attribute:: music_rhythm
+
+        The SKU is a rhythm game.
+
+    .. attribute:: open_world
+
+        The SKU is an open-world game.
+
+    .. attribute:: party_mini_game
 
         The SKU is a party game.
 
@@ -4735,6 +4917,12 @@ of :class:`enum.Enum`.
     .. attribute:: point_and_click
 
         The SKU is a point-and-click game.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: psychological_horror
+
+        The SKU is a psychological horror game.
 
     .. attribute:: puzzle
 
@@ -4800,13 +4988,31 @@ of :class:`enum.Enum`.
 
         The SKU is a survival game.
 
-    .. attribute:: tennis
+    .. attribute:: survival_horror
 
-        The SKU is a tennis game.
+        The SKU is a survival horror game.
 
-    .. attribute:: third_person_shooter
+    .. attribute:: tactical
 
-        The SKU is a third-person shooter.
+        The SKU is a tactical game.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: tower_defense
+
+        The SKU is a tower defense game.
+
+    .. attribute:: track_field
+
+        The SKU is a track and field game.
+
+    .. attribute:: train_simulator
+
+        The SKU is a train simulator game.
+
+    .. attribute:: trivia_board_game
+
+        The SKU is a trivia/board game.
 
     .. attribute:: turn_based_strategy
 
@@ -5169,6 +5375,24 @@ of :class:`enum.Enum`.
     .. attribute:: linux
 
         Represents Linux.
+
+    .. attribute:: android
+
+        Represents Android.
+
+    .. attribute:: ios
+
+        Represents iOS.
+
+    .. attribute:: playstation
+
+        Represents PlayStation.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: unknown
+
+        Represents an unknown operating system.
 
 .. class:: StickerAnimationOptions
 
@@ -5580,9 +5804,27 @@ of :class:`enum.Enum`.
 
     .. versionadded:: 2.0
 
+    .. attribute:: amazon_music
+
+        The user has an Amazon Music connection.
+
+        .. versionadded:: 2.1
+
     .. attribute:: battle_net
 
         The user has a Battle.net connection.
+
+    .. attribute:: bluesky
+
+        The user has a Bluesky connection.
+
+        .. versionadded:: 2.1
+
+    .. attribute:: bungie
+
+        The user has a Bungie connection.
+
+       .. versionadded:: 2.1
 
     .. attribute:: contacts
 
@@ -5591,6 +5833,12 @@ of :class:`enum.Enum`.
     .. attribute:: crunchyroll
 
         The user has a Crunchyroll connection.
+
+    .. attribute:: domain
+
+        The user has a domain connection.
+
+        .. versionadded:: 2.1
 
     .. attribute:: ebay
 
@@ -5618,6 +5866,12 @@ of :class:`enum.Enum`.
 
         The user has a League of Legends connection.
 
+    .. attribute:: mastodon
+
+        The user has a Mastodon connection.
+
+        .. versionadded:: 2.1
+
     .. attribute:: paypal
 
         The user has a PayPal connection.
@@ -5626,17 +5880,31 @@ of :class:`enum.Enum`.
 
         The user has a PlayStation connection.
 
+    .. attribute:: playstation_stg
+
+        The user has a PlayStation staging connection.
+
+        .. versionadded:: 2.1
+
     .. attribute:: reddit
 
         The user has a Reddit connection.
+
+    .. attribute:: roblox
+
+        The user has a Roblox connection.
+
+        .. versionadded:: 2.1
 
     .. attribute:: riot_games
 
         The user has a Riot Games connection.
 
-    .. attribute:: samsung
+    .. attribute:: soundcloud
 
-        The user has a Samsung Account connection.
+        The user has a SoundCloud connection.
+
+        .. versionadded:: 2.1
 
     .. attribute:: spotify
 
@@ -6114,24 +6382,57 @@ of :class:`enum.Enum`.
 
         A guild product was purchased.
 
-
 .. class:: MessageReferenceType
 
     Represents the type of a message reference.
 
     .. versionadded:: 2.1
 
-    .. attribute:: reply
+    .. attribute:: default
 
-        A message reply.
+        A standard reference used by message replies (:attr:`MessageType.reply`),
+        crossposted messaged created by a followed channel integration, and messages of type:
+
+        - :attr:`MessageType.pins_add`
+        - :attr:`MessageType.channel_follow_add`
+        - :attr:`MessageType.thread_created`
+        - :attr:`MessageType.thread_starter_message`
+        - :attr:`MessageType.poll_result`
+        - :attr:`MessageType.context_menu_command`
 
     .. attribute:: forward
 
         A forwarded message.
 
-    .. attribute:: default
+    .. attribute:: reply
 
-        An alias for :attr:`.reply`.
+        An alias for :attr:`.default`.
+
+.. class:: PromotionType
+
+    Represents the type of a promotion.
+
+    .. versionadded:: 2.1
+
+    .. attribute:: bogo
+
+        A "buy one get one" offer.
+
+    .. attribute:: partner
+
+        A partner promotion.
+
+    .. attribute:: third_party_inbound
+
+        A third-party inbound promotion.
+
+    .. attribute:: third_party_outbound
+
+        A third-party outbound promotion.
+
+    .. attribute:: marketing_moment
+
+        A marketing moment promotion.
 
 .. _discord-api-audit-logs:
 
@@ -6474,6 +6775,24 @@ AuditLogDiff
 
         :type: :class:`Colour`
 
+    .. attribute:: secondary_colour
+                   secondary_color
+
+        The secondary colour of a role.
+
+        See also :attr:`Role.secondary_colour`
+
+        :type: Optional[:class:`Colour`]
+
+    .. attribute:: tertiary_colour
+                   tertiary_color
+
+        The tertiary colour of a role.
+
+        See also :attr:`Role.tertiary_colour`
+
+        :type: Optional[:class:`Colour`]
+
     .. attribute:: hoist
 
         Whether the role is being hoisted or not.
@@ -6810,11 +7129,11 @@ AuditLogDiff
 
     .. attribute:: flags
 
-        The channel flags associated with this thread or forum post.
+        The flags associated with this channel or invite.
 
-        See also :attr:`ForumChannel.flags` and :attr:`Thread.flags`
+        See also :attr:`ForumChannel.flags` and :attr:`Invite.flags`
 
-        :type: :class:`ChannelFlags`
+        :type: Union[:class:`ChannelFlags`, :class:`InviteFlags`]
 
     .. attribute:: default_thread_slowmode_delay
 
@@ -7052,9 +7371,19 @@ User
 .. autoclass:: ProfileBadge()
     :members:
 
-.. attributetable:: Note
+.. attributetable:: RecentAvatar
 
-.. autoclass:: Note()
+.. autoclass:: RecentAvatar()
+    :members:
+
+.. attributetable:: PrimaryGuild
+
+.. autoclass:: PrimaryGuild()
+    :members:
+
+.. attributetable:: DisplayNameStyle
+
+.. autoclass:: DisplayNameStyle()
     :members:
 
 Affinity
@@ -7307,11 +7636,6 @@ Entitlement
 .. autoclass:: Entitlement()
     :members:
 
-.. attributetable:: EntitlementPayment
-
-.. autoclass:: EntitlementPayment()
-    :members:
-
 .. attributetable:: Gift
 
 .. autoclass:: Gift()
@@ -7320,11 +7644,6 @@ Entitlement
 .. attributetable:: GiftBatch
 
 .. autoclass:: GiftBatch()
-    :members:
-
-.. attributetable:: Achievement
-
-.. autoclass:: Achievement()
     :members:
 
 Library
@@ -7379,6 +7698,11 @@ Promotion
 .. attributetable:: DiscountOffer
 
 .. autoclass:: DiscountOffer()
+    :members:
+
+.. attributetable:: Discount
+
+.. autoclass:: Discount()
     :members:
 
 Subscription
@@ -8373,6 +8697,11 @@ Flags
 .. attributetable:: ChannelFlags
 
 .. autoclass:: ChannelFlags()
+    :members:
+
+.. attributetable:: EmbedFlags
+
+.. autoclass:: EmbedFlags()
     :members:
 
 .. attributetable:: FriendSourceFlags

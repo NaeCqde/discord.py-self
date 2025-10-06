@@ -149,8 +149,8 @@ class AsyncWebhookAdapter:
             headers['Content-Type'] = 'application/json'
             to_send = utils._to_json(payload)
 
-        if auth_token is not None:  # TODO: same as sync.py
-            headers['Authorization'] = f'{auth_token}'
+        if auth_token is not None:
+            headers['Authorization'] = auth_token
 
         if reason is not None:
             headers['X-Audit-Log-Reason'] = urlquote(reason)
@@ -449,6 +449,11 @@ class PartialWebhookChannel(Hashable):
 
     def __repr__(self) -> str:
         return f'<PartialWebhookChannel name={self.name!r} id={self.id}>'
+
+    @property
+    def mention(self) -> str:
+        """:class:`str`: The string that allows you to mention the channel that the webhook is following."""
+        return f'<#{self.id}>'
 
 
 class PartialWebhookGuild(Hashable):
@@ -1005,7 +1010,7 @@ class Webhook(BaseWebhook):
         if client is not MISSING:
             state = client._connection
             if session is MISSING:
-                session = client.http._HTTPClient__session  # type: ignore
+                session = client.http._HTTPClient__asession  # type: ignore
 
         if session is MISSING:
             raise TypeError('session or client must be given')
@@ -1044,7 +1049,7 @@ class Webhook(BaseWebhook):
 
             .. versionadded:: 2.0
         user_token: Optional[:class:`str`]
-            The bot authentication token for authenticated requests
+            The authentication token for authenticated requests
             involving the webhook.
 
             .. versionadded:: 2.0
@@ -1070,7 +1075,7 @@ class Webhook(BaseWebhook):
         if client is not MISSING:
             state = client._connection
             if session is MISSING:
-                session = client.http._HTTPClient__session  # type: ignore
+                session = client.http._HTTPClient__asession  # type: ignore
 
         if session is MISSING:
             raise TypeError('session or client must be given')
@@ -1093,7 +1098,7 @@ class Webhook(BaseWebhook):
 
         state = channel._state
         http = state.http
-        session = http._HTTPClient__session
+        session = http._HTTPClient__asession
         proxy_auth = http.proxy_auth
         proxy = http.proxy
         return cls(feed, session=session, state=state, proxy_auth=proxy_auth, proxy=proxy, token=state.http.token)
@@ -1101,7 +1106,7 @@ class Webhook(BaseWebhook):
     @classmethod
     def from_state(cls, data: WebhookPayload, state: ConnectionState) -> Self:
         http = state.http
-        session = http._HTTPClient__session  # type: ignore
+        session = http._HTTPClient__asession  # type: ignore
         proxy_auth = http.proxy_auth
         proxy = http.proxy
         return cls(data, session=session, state=state, proxy_auth=proxy_auth, proxy=proxy, token=state.http.token)

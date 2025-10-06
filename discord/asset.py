@@ -260,7 +260,7 @@ class Asset(AssetMixin):
         format = 'gif' if animated else 'png'
         return cls(
             state,
-            url=f"{cls.BASE}/guilds/{guild_id}/users/{member_id}/banners/{avatar}.{format}?size=512",
+            url=f"{cls.BASE}/guilds/{guild_id}/users/{member_id}/banners/{avatar}.{format}?size=1024",
             key=avatar,
             animated=animated,
         )
@@ -339,6 +339,15 @@ class Asset(AssetMixin):
         return cls(
             state,
             url=f'{cls.BASE}/app-assets/{app_id}/achievements/{achievement_id}/icons/{icon_hash}.png',
+            key=icon_hash,
+            animated=False,
+        )
+
+    @classmethod
+    def _from_primary_guild(cls, state: _State, guild_id: int, icon_hash: str) -> Self:
+        return cls(
+            state,
+            url=f'{cls.BASE}/guild-tag-badges/{guild_id}/{icon_hash}.png?size=64',
             key=icon_hash,
             animated=False,
         )
@@ -513,7 +522,7 @@ class Asset(AssetMixin):
             query['passthrough'] = 'false'
 
         url = str(url.with_query(query))
-        return Asset(state=self._state, url=url, key=self._key, animated=self._animated)
+        return self.__class__(state=self._state, url=url, key=self._key, animated=self._animated)
 
     def with_format(self, format: ValidAssetFormatTypes, /) -> Self:
         """Returns a new asset with the specified format.
@@ -552,7 +561,7 @@ class Asset(AssetMixin):
             query['passthrough'] = 'false'
 
         url = str(url.with_path(f'{path}.{format}').with_query(query))
-        return Asset(state=self._state, url=url, key=self._key, animated=self._animated)
+        return self.__class__(state=self._state, url=url, key=self._key, animated=self._animated)
 
     def with_static_format(self, format: ValidStaticFormatTypes, /) -> Self:
         """Returns a new asset with the specified static format.

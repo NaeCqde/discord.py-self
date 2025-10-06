@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     from .guild import Guild
     from .library import LibraryApplication
     from .state import ConnectionState
+    from .metadata import MetadataObject
     from .types.application import StoreAsset as StoreAssetPayload
     from .types.entitlements import Gift as GiftPayload
     from .types.snowflake import Snowflake as SnowflakeType
@@ -1079,6 +1080,11 @@ class SKU(Hashable):
 
     .. versionadded:: 2.0
 
+    .. versionchanged:: 2.1
+
+        Removed the non-functional ``create_discount()``
+        and ``delete_discount()`` methods.
+
     Attributes
     -----------
     id: :class:`int`
@@ -1496,7 +1502,7 @@ class SKU(Hashable):
         if manifest_labels is not MISSING:
             payload['manifest_labels'] = [m.id for m in manifest_labels] if manifest_labels else []
 
-        data = await self._state.http.edit_sku(self.id, **payload)
+        data = await self._state.http.edit_sku(self.id, payload)
         self._update(data)
 
     async def subscription_plans(
@@ -1689,54 +1695,6 @@ class SKU(Hashable):
         data = await self._state.http.create_store_listing(self.application_id, self.id, payload)
         return StoreListing(data=data, state=self._state, application=self.application)
 
-    async def create_discount(self, user: Snowflake, percent_off: int, *, ttl: int = 3600) -> None:
-        """|coro|
-
-        Creates a discount for this SKU for a user.
-
-        This discount will be applied to the user's next purchase of this SKU.
-
-        Parameters
-        ----------
-        user: :class:`User`
-            The user to create the discount for.
-        percent_off: :class:`int`
-            The discount in the form of a percentage off the price to give the user.
-        ttl: :class:`int`
-            How long the discount should last for in seconds.
-            Minimum 60 seconds, maximum 3600 seconds.
-
-        Raises
-        ------
-        Forbidden
-            You do not have permissions to create the discount.
-        HTTPException
-            Creating the discount failed.
-        """
-        await self._state.http.create_sku_discount(self.id, user.id, percent_off, ttl)
-
-    async def delete_discount(self, user: Snowflake) -> None:
-        """|coro|
-
-        Deletes a discount for this SKU for a user.
-
-        You do not need to call this after a discounted purchase has been made,
-        as the discount will be automatically consumed and deleted.
-
-        Parameters
-        ----------
-        user: :class:`User`
-            The user to delete the discount for.
-
-        Raises
-        ------
-        Forbidden
-            You do not have permissions to delete the discount.
-        HTTPException
-            Deleting the discount failed.
-        """
-        await self._state.http.delete_sku_discount(self.id, user.id)
-
     async def create_gift_batch(
         self,
         *,
@@ -1897,7 +1855,7 @@ class SKU(Hashable):
         payment_source_token: Optional[str] = None,
         purchase_token: Optional[str] = None,
         return_url: Optional[str] = None,
-        gateway_checkout_context: Optional[str] = None,
+        gateway_checkout_context: Optional[MetadataObject] = None,
     ) -> Tuple[List[Entitlement], List[LibraryApplication], Optional[Gift]]:
         """|coro|
 
@@ -1936,7 +1894,7 @@ class SKU(Hashable):
             The purchase token to use.
         return_url: Optional[:class:`str`]
             The URL to return to after the payment is complete.
-        gateway_checkout_context: Optional[:class:`str`]
+        gateway_checkout_context: Optional[Dict[:class:`str`, Any]]
             The current checkout context.
 
         Raises
@@ -2051,6 +2009,10 @@ class SubscriptionPlan(Hashable):
 
     .. versionadded:: 2.0
 
+    .. versionchanged:: 2.1
+
+        Removed ``discount_price`` and ``fallback_discount_price`` due to an API change.
+
     Attributes
     ----------
     id: :class:`int`
@@ -2074,25 +2036,13 @@ class SubscriptionPlan(Hashable):
     price: Optional[:class:`int`]
         The price of the subscription plan.
         Not available in some contexts.
-    discount_price: Optional[:class:`int`]
-        The discounted price of the subscription plan.
-        This price is the one premium subscribers will pay, and is only available for premium subscribers.
     fallback_currency: Optional[:class:`str`]
         The fallback currency of the subscription plan's price.
-        This is the currency that will be used for gifting if the user's currency is not giftable.
+        This is the currency that will be used for gifting if the plan's currency is not giftable.
     fallback_price: Optional[:class:`int`]
         The fallback price of the subscription plan.
-        This is the price that will be used for gifting if the user's currency is not giftable.
-    fallback_discount_price: Optional[:class:`int`]
-        The fallback discounted price of the subscription plan.
-        This is the discounted price that will be used for gifting if the user's currency is not giftable.
+        This is the price that will be used for gifting if the plan's currency is not giftable.
     """
-
-    _INTERVAL_TABLE = {
-        SubscriptionInterval.day: 1,
-        SubscriptionInterval.month: 30,
-        SubscriptionInterval.year: 365,
-    }
 
     __slots__ = (
         'id',
@@ -2105,10 +2055,8 @@ class SubscriptionPlan(Hashable):
         'currency',
         'price_tier',
         'price',
-        'discount_price',
         'fallback_currency',
         'fallback_price',
-        'fallback_discount_price',
         '_state',
     )
 
@@ -2133,10 +2081,8 @@ class SubscriptionPlan(Hashable):
         self.currency: Optional[str] = data.get('currency')
         self.price_tier: Optional[int] = data.get('price_tier')
         self.price: Optional[int] = data.get('price')
-        self.discount_price: Optional[int] = data.get('discount_price')
         self.fallback_currency: Optional[str] = data.get('fallback_currency')
         self.fallback_price: Optional[int] = data.get('fallback_price')
-        self.fallback_discount_price: Optional[int] = data.get('fallback_discount_price')
 
     def __repr__(self) -> str:
         return f'<SubscriptionPlan id={self.id} name={self.name!r} sku_id={self.sku_id} interval={self.interval!r} interval_count={self.interval_count}>'
@@ -2147,12 +2093,31 @@ class SubscriptionPlan(Hashable):
     @property
     def duration(self) -> timedelta:
         """:class:`datetime.timedelta`: How long the subscription plan lasts."""
-        return timedelta(days=self.interval_count * self._INTERVAL_TABLE[self.interval])
+        return timedelta(days=self.interval_count * self.interval.duration)
 
     @property
     def premium_type(self) -> Optional[PremiumType]:
         """Optional[:class:`PremiumType`]: The premium type of the subscription plan, if it is a premium subscription."""
         return PremiumType.from_sku_id(self.sku_id)
+
+    def get_price(self, context: SubscriptionPlanPurchaseType, /) -> SubscriptionPlanPrices:
+        """Returns the price of the subscription plan for a specific purchase context.
+        Falls back to the default price if no specific price is set for the context.
+
+        .. versionadded:: 2.1
+
+        Parameters
+        ----------
+        context: :class:`SubscriptionPlanPurchaseType`
+            The purchase context to get the price for.
+
+
+        Returns
+        -------
+        :class:`SubscriptionPlanPrices`
+            The price of the subscription plan for the given context.
+        """
+        return self.prices.get(context, self.prices[SubscriptionPlanPurchaseType.default])
 
     async def gifts(self) -> List[Gift]:
         """|coro|
@@ -2245,7 +2210,7 @@ class SubscriptionPlan(Hashable):
         payment_source_token: Optional[str] = None,
         purchase_token: Optional[str] = None,
         return_url: Optional[str] = None,
-        gateway_checkout_context: Optional[str] = None,
+        gateway_checkout_context: Optional[MetadataObject] = None,
     ) -> Tuple[List[Entitlement], List[LibraryApplication], Optional[Gift]]:
         """|coro|
 
@@ -2283,7 +2248,7 @@ class SubscriptionPlan(Hashable):
             The purchase token to use.
         return_url: Optional[:class:`str`]
             The URL to return to after the payment is complete.
-        gateway_checkout_context: Optional[:class:`str`]
+        gateway_checkout_context: Optional[Dict[:class:`str`, Any]]
             The current checkout context.
 
         Raises

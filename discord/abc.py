@@ -100,6 +100,7 @@ if TYPE_CHECKING:
         StageChannel,
         CategoryChannel,
     )
+    from .permissions import flag_value
     from .poll import Poll
     from .threads import Thread
     from .types.channel import (
@@ -110,9 +111,8 @@ if TYPE_CHECKING:
     )
     from .types.embed import EmbedType
     from .types.message import MessageSearchAuthorType, MessageSearchHasType, PartialMessage as PartialMessagePayload
-    from .types.snowflake import (
-        SnowflakeList,
-    )
+    from .types.guild import ChannelPositionUpdate
+    from .types.snowflake import SnowflakeList
 
     MessageableChannel = Union[TextChannel, VoiceChannel, StageChannel, Thread, DMChannel, PartialMessageable, GroupChannel]
     VocalChannel = Union[VoiceChannel, StageChannel, DMChannel, GroupChannel]
@@ -268,6 +268,8 @@ async def _handle_message_search(
     after: SnowflakeTime = MISSING,
     include_nsfw: bool = MISSING,
     content: str = MISSING,
+    contents: Sequence[str] = MISSING,
+    slop: int = 0,
     channels: Collection[Snowflake] = MISSING,
     authors: Collection[Snowflake] = MISSING,
     author_types: Collection[MessageSearchAuthorType] = MISSING,
@@ -280,7 +282,8 @@ async def _handle_message_search(
     link_hostnames: Collection[str] = MISSING,
     attachment_filenames: Collection[str] = MISSING,
     attachment_extensions: Collection[str] = MISSING,
-    application_commands: Collection[Snowflake] = MISSING,
+    application_command_id: Optional[Snowflake] = MISSING,
+    application_command_name: Optional[str] = MISSING,
     oldest_first: bool = MISSING,
     most_relevant: bool = False,
 ) -> AsyncIterator[Message]:
@@ -294,6 +297,11 @@ async def _handle_message_search(
         raise ValueError('limit must be greater than or equal to 0')
     if offset < 0:
         raise ValueError('offset must be greater than or equal to 0')
+
+    if application_command_id and not application_command_name:
+        raise TypeError('application_command_name must be specified if application_command_id is specified')
+    if application_command_name and not application_command_id:
+        raise TypeError('application_command_id must be specified if application_command_name is specified')
 
     _channels = {c.id: c for c in channels} if channels else {}
 
@@ -350,6 +358,10 @@ async def _handle_message_search(
         payload['include_nsfw'] = str(include_nsfw).lower()
     if content:
         payload['content'] = content
+    if contents:
+        payload['contents'] = list(contents)
+    if slop:
+        payload['slop'] = slop
     if channels:
         payload['channel_id'] = [c.id for c in channels]
     if authors:
@@ -374,8 +386,10 @@ async def _handle_message_search(
         payload['attachment_filename'] = list(attachment_filenames)
     if attachment_extensions:
         payload['attachment_extension'] = list(attachment_extensions)
-    if application_commands:
-        payload['command_id'] = [c.id for c in application_commands]
+    if application_command_id:
+        payload['command_id'] = application_command_id.id
+    if application_command_name:
+        payload['command_name'] = application_command_name
     if oldest_first:
         payload['sort_order'] = 'asc'
     if most_relevant:
@@ -690,10 +704,34 @@ class GuildChannel:
     def _sorting_bucket(self) -> int:
         raise NotImplementedError
 
+    def _can_everyone(self, permission: flag_value) -> bool:
+        if self.permissions_for(self.guild.default_role).value & permission.flag != permission.flag:
+            return False
+        for overwrite in self._overwrites:
+            if overwrite.deny & permission.flag == permission.flag:
+                return False
+        return True
+
+    def _is_everyone_member_list(self) -> bool:
+        # This should use _can_everyone(Permissions.read_messages) but Discord's implementation is flawed
+        # so we must use the flawed implementation to be compatible
+        if not self.guild.default_role.permissions.read_messages:
+            return False
+        for overwrite in self._overwrites:
+            if overwrite.deny & Permissions.read_messages.flag == Permissions.read_messages.flag:
+                return False
+        return True
+
     @property
-    def member_list_id(self) -> Union[str, Literal["everyone"]]:
-        if self.permissions_for(self.guild.default_role).read_messages:
-            return "everyone"
+    def member_list_id(self) -> Union[str, Literal['everyone']]:
+        """:class:`str`: The ID of the member list for this channel.
+
+        A member list ID of ``everyone`` indicates that everyone can view the channel.
+
+        .. versionadded:: 2.1
+        """
+        if self._is_everyone_member_list():
+            return 'everyone'
 
         overwrites = []
         for overwrite in self._overwrites:
@@ -1540,11 +1578,11 @@ class GuildChannel:
             raise ValueError('Could not resolve appropriate move position')
 
         channels.insert(max((index + offset), 0), self)
-        payload = []
+        payload: List[ChannelPositionUpdate] = []
         lock_permissions = kwargs.get('sync_permissions', False)
         reason = kwargs.get('reason')
         for index, channel in enumerate(channels):
-            d = {'id': channel.id, 'position': index}
+            d: ChannelPositionUpdate = {'id': channel.id, 'position': index}
             if parent_id is not MISSING and channel.id == self.id:
                 d.update(parent_id=parent_id, lock_permissions=lock_permissions)
             payload.append(d)
@@ -1560,6 +1598,7 @@ class GuildChannel:
         temporary: bool = False,
         unique: bool = True,
         guest: bool = False,
+        application_bypass: bool = False,
         target_type: Optional[InviteTarget] = None,
         target_user: Optional[User] = None,
         target_application: Optional[Snowflake] = None,
@@ -1591,9 +1630,14 @@ class GuildChannel:
             Defaults to ``False``.
 
             .. versionadded:: 2.1
+        application_bypass: :class:`bool`
+            Denotes that the invite bypasses guild join requests and adds the user directly to the guild with :attr:`discord.Member.pending` set to ``False``.
+            Requires that manual approval is enabled for the guild.
+
+            .. versionadded:: 2.1
         unique: :class:`bool`
             Indicates if a unique invite URL should be created. Defaults to ``True``.
-            If this is set to ``False`` then it will return a previously created
+            If this is set to ``False`` then it may return a previously created
             invite.
         target_type: Optional[:class:`~discord.InviteTarget`]
             The type of target for the voice channel invite, if any.
@@ -1628,9 +1672,12 @@ class GuildChannel:
             raise ValueError('target_type parameter must be InviteTarget.stream, or InviteTarget.embedded_application')
         if target_type == InviteTarget.unknown:
             target_type = None
+
         flags = InviteFlags()
         if guest:
             flags.guest = True
+        if application_bypass:
+            flags.application_bypass = True
 
         data = await self._state.http.create_invite(
             self.id,
@@ -1908,6 +1955,9 @@ class Messageable:
             Sending the message failed.
         ~discord.Forbidden
             You do not have the proper permissions to send the message.
+        ~discord.NotFound
+            You sent a message with the same nonce as one that has been explicitly
+            deleted shortly earlier.
         ValueError
             The ``files`` list is not of the appropriate size.
         TypeError
@@ -2061,6 +2111,10 @@ class Messageable:
         the destination for an indefinite period of time, or 10 seconds if the context manager
         is called using ``await``.
 
+        The returned context manager contains ``message_send_cooldown`` and ``thread_create_cooldown``
+        attributes that are integers representing the time left until the channel's slowmode
+        expires. These attributes are updated from every typing request sent to the API.
+
         Example Usage: ::
 
             async with channel.typing():
@@ -2080,6 +2134,9 @@ class Messageable:
 
         .. versionchanged:: 2.0
             Added functionality to ``await`` the context manager to send a typing indicator for 10 seconds.
+
+        .. versionchanged:: 2.1
+            Added ``message_send_cooldown`` and ``thread_create_cooldown`` attributes to the context manager.
         """
         return Typing(self)
 
@@ -2358,6 +2415,8 @@ class Messageable:
         self,
         content: str = MISSING,
         *,
+        contents: Sequence[str] = MISSING,
+        slop: int = MISSING,
         limit: Optional[int] = 25,
         offset: int = 0,
         before: SnowflakeTime = MISSING,
@@ -2373,7 +2432,8 @@ class Messageable:
         link_hostnames: Collection[str] = MISSING,
         attachment_filenames: Collection[str] = MISSING,
         attachment_extensions: Collection[str] = MISSING,
-        application_commands: Collection[Snowflake] = MISSING,
+        application_command_id: Snowflake = MISSING,
+        application_command_name: str = MISSING,
         oldest_first: bool = MISSING,
         most_relevant: bool = False,
     ) -> AsyncIterator[Message]:
@@ -2410,6 +2470,10 @@ class Messageable:
         -----------
         content: :class:`str`
             The message content to search for.
+        contents: List[:class:`str`]
+            Tokenized message contents to search for. Must be prefixed with ``0|`` for exact match or ``2|`` for fuzzy match.
+        slop: :class:`int`
+            The slop for message content token matching from 0 to 100. Defaults to 2.
         limit: Optional[:class:`int`]
             The number of messages to retrieve.
             If ``None``, retrieves every message in the results. Note, however,
@@ -2449,13 +2513,15 @@ class Messageable:
             The attachment filenames to filter by.
         attachment_extensions: List[:class:`str`]
             The attachment extensions to filter by (e.g. txt).
-        application_commands: List[:class:`~discord.abc.ApplicationCommand`]
-            The used application commands to filter by.
+        application_command_id: :class:`int`
+            The application command ID to filter by. Must be used with ``application_command_name``.
+        application_command_name: :class:`str`
+            The application command name to filter by. Must be used with ``application_command_id``.
         oldest_first: :class:`bool`
             Whether to return the oldest results first. Defaults to ``True`` if
             ``after`` is specified, otherwise ``False``. Ignored when ``most_relevant`` is set.
         most_relevant: :class:`bool`
-            Whether to sort the results by relevance. Limits pagination to 9975 entries.
+            Whether to sort the results by relevance. Limits pagination to 10,000 entries.
 
         Raises
         ------
@@ -2465,6 +2531,7 @@ class Messageable:
             Provided both ``before`` and ``after`` when ``most_relevant`` is set.
         ValueError
             Could not resolve the channel's guild ID.
+            Did not provide both ``application_command_id`` and ``application_command_name``.
 
         Yields
         -------
@@ -2478,6 +2545,8 @@ class Messageable:
             before=before,
             after=after,
             content=content,
+            contents=contents,
+            slop=slop,
             authors=authors,
             author_types=author_types,
             mentions=mentions,
@@ -2489,7 +2558,8 @@ class Messageable:
             link_hostnames=link_hostnames,
             attachment_filenames=attachment_filenames,
             attachment_extensions=attachment_extensions,
-            application_commands=application_commands,
+            application_command_id=application_command_id,
+            application_command_name=application_command_name,
             oldest_first=oldest_first,
             most_relevant=most_relevant,
         )

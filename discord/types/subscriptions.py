@@ -38,6 +38,7 @@ class PremiumGuildSubscription(TypedDict):
     user: NotRequired[PartialUser]
     ended: bool
     ends_at: NotRequired[str]
+    pause_ends_at: Optional[str]
 
 
 class PremiumGuildSubscriptionSlot(TypedDict):
@@ -156,6 +157,10 @@ class SubscriptionPrice(TypedDict):
 
 class CountryCode(TypedDict):
     country_code: str
+
+
+class LocationInfo(CountryCode):
+    subdivision_code: Optional[str]
 
 
 class SubscriptionCountryPrice(CountryCode):
